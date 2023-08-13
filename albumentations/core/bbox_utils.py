@@ -1,10 +1,23 @@
 from __future__ import division
 
+import copy
 from functools import wraps
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union, cast
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    TypeVar,
+    Union,
+    cast,
+)
 
 import numpy as np
 
+from .batch_utils import batch2list, list2batch, to_unbatched_name
 from .transforms_interface import (
     BBoxesInternalType,
     BoxesArray,
@@ -23,6 +36,7 @@ __all__ = [
     "filter_bboxes",
     "union_of_bboxes",
     "BboxProcessor",
+    "BboxBatchProcessor",
     "BboxParams",
     "use_bboxes_ndarray",
 ]
@@ -199,6 +213,60 @@ class BboxProcessor(DataProcessor):
 
     def convert_to_albumentations(self, data, rows: int, cols: int):
         return convert_bboxes_to_albumentations(data, self.params.format, rows, cols, check_validity=True)
+
+
+class BboxBatchProcessor(DataProcessor):
+    def __init__(self, params: BboxParams, additional_targets: Optional[Dict[str, str]] = None):
+        super().__init__(params, additional_targets)
+        item_params = copy.deepcopy(params)
+        if item_params.label_fields is not None:
+            label_fields = item_params.label_fields
+            item_params.label_fields = [to_unbatched_name(field) for field in label_fields]
+        self.item_processor = BboxProcessor(item_params, additional_targets)
+
+    @property
+    def default_data_name(self) -> str:
+        return "bboxes_batch"
+
+    def ensure_data_valid(self, data: Dict[str, Any]) -> None:
+        for item in batch2list(data):
+            self.item_processor.ensure_data_valid(item)
+
+    def postprocess(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        processed = [self.item_processor.postprocess(item) for item in batch2list(data)]
+        procesed_data = list2batch(processed)
+        for k in data.keys():
+            data[k] = procesed_data[k]
+        return data
+
+    def preprocess(self, data: Dict[str, Any]) -> None:
+        processed = batch2list(data)
+        for item in processed:
+            self.item_processor.preprocess(item)
+        procesed_data = list2batch(processed)
+        for k in data.keys():
+            data[k] = procesed_data[k]
+
+    def filter_batch(self, batched_data: Dict[str, Any]) -> Dict[str, Any]:
+        processed = []
+        for data in batch2list(batched_data):
+            rows, cols = data["image"][:2]
+            for data_name in self.item_processor.data_fields:
+                data[data_name] = self.item_processor.filter(data[data_name], rows, cols, data_name)
+            processed.append(data)
+        return list2batch(processed)
+
+    def filter(self, *args, **kwargs) -> Sequence:
+        return self.item_processor.filter(*args, **kwargs)
+
+    def check(self, *args, **kwargs) -> None:
+        return self.item_processor.check(*args, **kwargs)
+
+    def convert_to_albumentations(self, data, rows: int, cols: int):
+        return self.item_processor.convert_to_albumentations(data, rows=rows, cols=cols)
+
+    def convert_from_albumentations(self, data, rows: int, cols: int):
+        return self.item_processor.convert_from_albumentations(data, rows=rows, cols=cols)
 
 
 @use_bboxes_ndarray(return_array=True)

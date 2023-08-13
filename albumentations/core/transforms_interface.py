@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 
+import functools
 import random
 import sys
 from abc import abstractmethod
@@ -27,6 +28,7 @@ __all__ = [
     "DualTransform",
     "ImageOnlyTransform",
     "NoOp",
+    "BatchBasedTransform",
     "BoxType",
     "BoxInternalType",
     "KeypointType",
@@ -115,7 +117,7 @@ class Floats4Internal(BatchInternalType):
         return np.array_equal(self.array, other.array) and self.targets == other.targets
 
     def __getitem__(self, item):
-        _arr = self.array[item].astype(float)
+        _arr = self.array[item].astype(self.array.dtype)
         if isinstance(item, int):
             _arr = _arr[np.newaxis, ...]
             _target = [self.targets[item]] if self.targets else []
@@ -128,6 +130,7 @@ class Floats4Internal(BatchInternalType):
     def __setitem__(self, idx, value: "Floats4Internal"):
         self.array[idx] = value.array
         if isinstance(idx, int):
+            assert len(value) == 1
             self.targets[idx] = value.targets[0]
         else:
             for i, target in zip(idx, value.targets):
@@ -136,7 +139,7 @@ class Floats4Internal(BatchInternalType):
 
 @dataclass(eq=False)
 class BBoxesInternalType(Floats4Internal):
-    array: BoxesArray = field(default=np.empty((0, 4)))
+    array: BoxesArray = field(default_factory=functools.partial(np.empty, shape=(0, 4)))
 
     @staticmethod
     def assert_array_format(bboxes: np.ndarray):  # noqa
@@ -160,7 +163,7 @@ class BBoxesInternalType(Floats4Internal):
 
 @dataclass(eq=False)
 class KeypointsInternalType(Floats4Internal):
-    array: KeypointsArray = field(default=np.empty((0, 4)))
+    array: KeypointsArray = field(default_factory=functools.partial(np.empty, shape=(0, 4)))
 
     @staticmethod
     def assert_array_format(keypoints: np.ndarray):  # noqa
@@ -437,3 +440,36 @@ class NoOp(DualTransform):
 
     def get_transform_init_args_names(self) -> Tuple:
         return ()
+
+
+class BatchBasedTransform(BasicTransform):
+    """Transform for multi-image."""
+
+    @property
+    def targets(self) -> Dict[str, Callable]:
+        return {
+            "image_batch": self.apply_to_image_batch,
+            "mask_batch": self.apply_to_mask_batch,
+            "bboxes_batch": self.apply_to_bboxes_batch,
+            "keypoints_batch": self.apply_to_keypoints_batch,
+        }
+
+    def update_params(self, params: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+        # This overwrites the `super().update_params(...)`
+        return params
+
+    def apply_to_image_batch(self, image_batch: Sequence[np.ndarray], **params) -> Sequence[np.ndarray]:
+        raise NotImplementedError(f"Method apply_to_image_batch is not implemented in class {self.__class__.__name__}.")
+
+    def apply_to_mask_batch(self, mask_batch: Sequence[np.ndarray], **params) -> Sequence[np.ndarray]:
+        raise NotImplementedError(f"Method apply_to_mask_batch is not implemented in class {self.__class__.__name__}.")
+
+    def apply_to_bboxes_batch(self, bboxes_batch: Sequence[BBoxesInternalType], **params) -> List:
+        raise NotImplementedError(
+            f"Method apply_to_bboxes_batch is not implemented in class {self.__class__.__name__}."
+        )
+
+    def apply_to_keypoints_batch(self, keypoints_batch: Sequence[KeypointsInternalType], **params) -> List:
+        raise NotImplementedError(
+            f"Method apply_to_keypoints_batch is not implemented in class {self.__class__.__name__}."
+        )

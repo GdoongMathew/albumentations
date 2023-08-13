@@ -2,7 +2,7 @@ from __future__ import absolute_import
 
 from abc import ABC, abstractmethod
 from functools import wraps
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, TypeVar, Union
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple, TypeVar, Union
 
 import numpy as np
 

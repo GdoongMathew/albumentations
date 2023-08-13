@@ -10,6 +10,7 @@ import albumentations  # noqa: E402
 IGNORED_CLASSES = {
     "BasicTransform",
     "BasicIAATransform",
+    "BatchBasedTransform",
     "DualIAATransform",
     "DualTransform",
     "ImageOnlyIAATransform",
